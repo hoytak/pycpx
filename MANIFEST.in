@@ -1,0 +1,4 @@
+include tests/*.py
+include pycpx/*.pyx pycpx/*.cpp pycpx/*.h pycpx/*.hpp
+include doc/*.rst doc/conf.py doc/Makefile doc/_static doc/_templates
+include LICENSE.txt
