@@ -42,7 +42,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'PyCpx'
+project = u'PyCpx -- Python Wrapper for CPlex Optimization Suite'
 copyright = u'2009-2011, Hoyt Koepke'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -91,7 +91,8 @@ pygments_style = 'sphinx'
 # Options for HTML output
 # -----------------------
 
-html_theme = "agogo"
+html_theme = "hoytwww"
+html_theme_path = ["_themes"]
 
 # The style sheet to use for HTML and HTML Help pages. A file of that name
 # must exist either in Sphinx' static/ path, or in one of the custom paths

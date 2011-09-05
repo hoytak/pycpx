@@ -24,9 +24,9 @@ CPlex is a powerful solver for linear and quadratic programs over
 real, linear, and boolean variables.  PyCPX allows one to naturally
 express such programs using numpy and natural python constructs.
 
-PyCPX requires IBM's `ILog Concert Technology`_ Suite, which is
-available for free under IBM's Academic Initiative program or as part
-of the CPlex Optimization Suite.
+PyCPX requires IBM's ILog Concert Technology Suite, which is available
+for free under IBM's Academic Initiative program or as part of the
+CPlex Optimization Suite.
 """
 
 classifiers = [
