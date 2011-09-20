@@ -1396,8 +1396,8 @@ cdef class CPlexModel(object):
 
         performs a matrix multiply to evaluate ``A*x``.  This example
         works if the number of rows in ``A`` is the same as the size
-        of ``b``, and ``A`` has 5 rows to match the 5 columns of
-        ``x``.  
+        of ``b``, and ``A`` has 5 columns to match the 5 rows of
+        ``x``.
         
         When the values of a variable block are requested after
         solving the model, variables created using the default scalar
