@@ -14,7 +14,7 @@ author_email="hoytak@gmail.com"
 name = 'pycpx'
 scripts = []
 url = "http://www.stat.washington.edu/~hoytak/code/pycpx/"
-download_url = "http://pypi.python.org/pypi/pycpx/"
+download_url = "http://pypi.python.org/packages/source/p/pycpx/pycpx-0.01.tar.gz"
 
 long_description = \
 """
@@ -312,4 +312,3 @@ if __name__ == '__main__':
         classifiers = classifiers,
         url = url,
         download_url = download_url)
-
