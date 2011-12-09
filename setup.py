@@ -127,7 +127,7 @@ def attempt_path_find(p, mid_level, goal_list, mode, path_filter, test_64bit):
 # Find the include path
 def find_path(pl, goal_list, name, mode, path_filter, test_64bit):
     for p in pl:
-        for mid_level in ['', '*', '*/*', '*/*/*', '*/*/*/*', '*/*/*/*/*']:
+        for mid_level in ['*', '*/*', '*/*/*', '*/*/*/*', '*/*/*/*/*', '../*', '../*/*']:
             
             candidates = attempt_path_find(p, mid_level, goal_list, mode, path_filter, test_64bit)
 
@@ -135,8 +135,9 @@ def find_path(pl, goal_list, name, mode, path_filter, test_64bit):
                 return list(candidates)
         
     raise Exception(("CPLEX %s not found: please set environment variable CPLEX_PATH "
-                     "to point to the base of the cplex directory.")
-                    % name)
+                     "to point to the base of the CPlex/Concert installation. "
+                     "Attempting to find files: %s." )
+                    % (name, (', '.join(goal_list))))
 
 include_path = find_path(search_paths, search_required_include_files,
                          "concert include directory", 'and', '', False)
