@@ -3,13 +3,21 @@ from numpy cimport ndarray as ar, \
 
 cimport cython
 
-from numpy import int32,uint32,int64, uint64, float32, float64,\
+from numpy import int_, int32,uint32,int64, uint64, float32, float64,\
     uint, empty, ones, zeros, uint, arange, isscalar, amax, amin, \
     ndarray, array, asarray, isfinite, argsort, matrix, nan, inf, float_
 
 import numpy.random as rn
 import tempfile
 import os
+
+cdef object issparse
+
+try:
+    import scipy.sparse
+    issparse = scipy.sparse.issparse
+except ImportError:
+    issparse = lambda x: False
 
 ################################################################################
 # The following defines the external definitions from the cplex
@@ -167,7 +175,7 @@ cdef extern from "cplex_interface.hpp":
 
     cdef int CPX_ALG_NONE, CPX_ALG_AUTOMATIC, CPX_ALG_PRIMAL, CPX_ALG_DUAL, CPX_ALG_BARRIER,
     cdef int CPX_ALG_SIFTING, CPX_ALG_CONCURRENT, CPX_ALG_NET
-
+        
     cdef cppclass CPlexModelInterface:
         CPlexModelInterface(IloEnv)
         Status addVariables(ExpressionArray)
@@ -244,9 +252,6 @@ DEF FLOAT_TYPE = 0
 DEF INT_TYPE   = 1
 DEF BOOL_TYPE  = 2
 
-cdef double d_nan = nan
-cdef double d_inf = inf
-
 ################################################################################
 # Fast creation of these functions
 
@@ -263,7 +268,7 @@ cdef inline CPlexExpression newCPEFromExisting(CPlexModel model, ExpressionArray
     expr.data        = data
     expr.original_size = None
     expr.key         = None
-    expr.__array_priority__ = 20.0
+    expr.__array_priority__ = 20.1
     
     return expr
 
@@ -319,6 +324,8 @@ cdef NumericalArrayWrapper newCoercedNumericalArray(Xo, MetaData md):
         Xo = asarray(Xo)
     elif isscalar(Xo):
         Xo = asarray([Xo])
+    elif issparse(Xo):
+        Xo = Xo.todense()        
     else:
         if type(Xo) is not ndarray:
             raise TypeError("Unable to understand numerical array value.")
@@ -544,7 +551,7 @@ cdef class CPlexExpression(object):
     cdef ExpressionArray *data
     cdef object original_size
     cdef str key
-    cdef readonly float __array_priority__
+    cdef readonly object __array_priority__
 
     def __init__(self):
         raise Exception("CPlexExpression not meant to be instantiated directly.")
@@ -933,9 +940,14 @@ cdef dict _vartype_map = {
     "binary"  : BOOL_TYPE,
     "boolean" : BOOL_TYPE,
     "b"       : BOOL_TYPE}
+           
 
 cdef inline ar toDoubleArray_1d(a, str name, long required_size):
     cdef ar a_1
+    cdef size_t i
+
+    if issparse(a):
+        a = a.todense()
 
     try:
         a_1 = asarray(a, dtype = float_)
@@ -946,9 +958,17 @@ cdef inline ar toDoubleArray_1d(a, str name, long required_size):
         raise TypeError("`%s` must be convertable to 1d numpy array of length %d."
                         % (name, required_size))
 
+    if a_1.size == 0:
+        return None
+
     if a_1.ndim != 1:
-        raise TypeError("`%s` must be convertable to 1d numpy array of length %d (ndim = %d)."
-                        % (name, required_size, a_1.ndim))
+        
+        if a_1.ndim == 2 and (a_1.shape[0] == 1 or a_1.shape[1] == 1):
+            a_1 = a_1.ravel()        
+        else:
+            raise TypeError("`%s` must be convertable to 1d numpy array of length %d (shape = (%s) )."
+                            % (name, required_size,
+                               ', '.join(["%d" % a_1.shape[i] for i in range(a_1.ndim)])))
 
     if a_1.shape[0] != required_size:
         raise TypeError("`%s` must be convertable to 1d numpy array of length %d (length = %d)."
@@ -1009,6 +1029,7 @@ cdef CPlexExpression newVariableBlock(CPlexModel model, size, var_type, lower_bo
     # Now set the lower bounds
 
     cdef IloNumArray *lb = new IloNumArray(env, n)
+    cdef ar[int_t, mode="c"] finite_elements = None
 
     if lower_bound is None:
         for 0 <= i < n:
@@ -1020,13 +1041,19 @@ cdef CPlexExpression newVariableBlock(CPlexModel model, size, var_type, lower_bo
             lb[0][i] = d
 
     else:
-        dv = toDoubleArray_1d(lower_bound, "lower_bound", n)
+        dv_r = toDoubleArray_1d(lower_bound, "lower_bound", n)
 
-        for 0 <= i < n:
-            if dv[i] == d_inf or dv[i] == d_nan or dv[i] == -d_inf:
+        if dv_r is None:
+            for 0 <= i < n:
                 lb[0][i] = -IloInfinity
-            else:
-                lb[0][i] = dv[i]
+        else:
+            dv = dv_r
+
+            finite_elements = empty(n, int_)
+            isfinite(dv_r, finite_elements)
+
+            for 0 <= i < n:
+                lb[0][i] = dv[i] if finite_elements[i] else -IloInfinity
 
     ########################################
     # Now set the upper bounds
@@ -1043,13 +1070,22 @@ cdef CPlexExpression newVariableBlock(CPlexModel model, size, var_type, lower_bo
             ub[0][i] = d
 
     else:
-        dv = toDoubleArray_1d(upper_bound, "upper_bound", n)
+        dv_r = toDoubleArray_1d(upper_bound, "upper_bound", n)
 
-        for 0 <= i < n:
-            if dv[i] == d_inf or dv[i] == d_nan or dv[i] == -d_inf:
+        if dv_r is None:
+            for 0 <= i < n:
                 ub[0][i] = IloInfinity
-            else:
-                ub[0][i] = dv[i]
+        else:
+            dv = dv_r
+
+            if finite_elements is None:
+                finite_elements = empty(n, int_)
+                
+            isfinite(dv_r, finite_elements)
+
+            for 0 <= i < n:
+                ub[0][i] = dv[i] if finite_elements[i] else IloInfinity
+
 
     ########################################
     # Now get the variables
@@ -1278,6 +1314,8 @@ cdef CPlexConstraint cstr_var_op_var(op_type, a1, a2):
             return cstr_expression_op_array(op_type, expr1, a2, False)
         elif isscalar(a2):
             return cstr_expression_op_scalar(op_type, expr1, a2, False)
+        elif issparse(a2):
+            return cstr_expression_op_array(op_type, expr1, a2.todense(), False)
         else:
             raise TypeError("Iteraction with type %s not supported yet." % type(a2))
     elif expr2 is not None:
@@ -1285,6 +1323,8 @@ cdef CPlexConstraint cstr_var_op_var(op_type, a1, a2):
             return cstr_expression_op_array(op_type, expr2, a1, True)
         elif isscalar(a1):
             return cstr_expression_op_scalar(op_type, expr2, a1, True)
+        elif issparse(a1):
+            return cstr_expression_op_array(op_type, expr2, a1.todense(), True)
         else:
             raise TypeError("Iteraction with type %s not supported yet." % type(a1))
     else:
