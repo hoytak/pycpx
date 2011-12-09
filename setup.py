@@ -78,7 +78,6 @@ search_required_include_files = [
 
 search_required_concert_lib_files = ["libconcert.a", "libconcert.so", "libconcert.dll"]
 search_required_cplex_lib_files = ["libcplex.a", "libcplex.so", "libcplex.dll"]
-search_required_cp_lib_files = ["libcp.a", "libcp.so", "libcp.dll"]
 
 def process_path(s):
     return [p for p in s.split(';') if p]
@@ -153,12 +152,6 @@ concert_lib_path = find_path(search_paths, search_required_concert_lib_files,
                              "concert library", 'or', 'concert', True)
 print "Using CPLEX concert library directory(s): %s" % (",".join(concert_lib_path))
 extra_library_dirs += concert_lib_path
-
-# cp_lib_path = find_path(search_paths, search_required_cp_lib_files,
-#                         "cp library", 'or', '', True)
-# print "Using CPLEX cp library directory(s): %s" % (",".join(cp_lib_path))
-# extra_library_dirs += cp_lib_path
-
 
 ######################################################
 # First have to see if we're authorized to use cython files, or if we
