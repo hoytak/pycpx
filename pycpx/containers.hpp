@@ -240,6 +240,11 @@ public:
 	{
 	}
     
+    inline IloEnv getEnv() const 
+	{
+	    return env;
+	}
+
     virtual inline bool preferReversedTraverse() const 
 	{
 	    return _md.stride(0) < _md.stride(1);
@@ -368,7 +373,7 @@ public:
 	}
 
     template <typename ReductionOp>
-    ParentType* newFromReduction(int axis, const ReductionOp& op) const
+    ParentType* newFromReduction(int axis, const ReductionOp& op, bool is_simple) const
 	{
 	    ParentType* dest_ptr;
 
@@ -380,14 +385,14 @@ public:
 	    switch(axis){
 	    case 0:
 		for(long i = 0; i < shape(1); ++i)
-		    reduction_op(dest(0,i), parent(), SliceFull(shape(0)), SliceSingle(i), op);
+		    reduction_op(dest(0,i), parent(), SliceFull(shape(0)), SliceSingle(i), op, is_simple);
 		break;
 	    case 1:
 		for(long i = 0; i < shape(0); ++i)
-		    reduction_op(dest(i,0), parent(), SliceSingle(i), SliceFull(shape(1)), op);
+		    reduction_op(dest(i,0), parent(), SliceSingle(i), SliceFull(shape(1)), op, is_simple);
 		break;
 	    default:
-		reduction_op(dest(0,0), parent(), SliceFull(shape(0)), SliceFull(shape(1)), op);
+		reduction_op(dest(0,0), parent(), SliceFull(shape(0)), SliceFull(shape(1)), op, is_simple);
 		break;
 	    }
 
@@ -498,10 +503,13 @@ public:
 
     ExpressionArray* newFromReduction(int op_type, int axis) const
 	{
-	    switch(op_type){
-	    case OP_R_SUM: return Base::newFromReduction(axis, ROp<OP_R_SUM, Value>());
-	    case OP_R_MAX: return Base::newFromReduction(axis, ROp<OP_R_MAX, Value>());
-	    case OP_R_MIN: return Base::newFromReduction(axis, ROp<OP_R_MIN, Value>());
+
+	    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
+
+	    switch(op_type & OP_SIMPLE_MASK){
+	    case OP_R_SUM: return Base::newFromReduction(axis, ROp<OP_R_SUM, Value>(), is_simple);
+	    case OP_R_MAX: return Base::newFromReduction(axis, ROp<OP_R_MAX, Value>(), is_simple);
+	    case OP_R_MIN: return Base::newFromReduction(axis, ROp<OP_R_MIN, Value>(), is_simple);
 	    default: 
 		assert(false);
 		return NULL;
@@ -589,7 +597,7 @@ public:
 struct Scalar : public ComponentBase<Scalar, double> {
 public:
     typedef ComponentBase<Scalar, double> Base;
-
+    typedef double Value;
 
     Scalar(IloEnv env, const double& _value)
 	: Base(env, MetaData(ARRAY_MODE, 1, 1, 0, 0)), value(_value)
@@ -676,6 +684,8 @@ MetaData newMetadata(int op_type, const MetaData& md1, const MetaData& md2, int*
 
     int mode = newMode(op_type, md1.mode(), md2.mode());
 
+    op_type = op_type & OP_SIMPLE_MASK;
+
     if( (op_type == OP_B_MULTIPLY && md1.matrix_multiplication_applies(md2))
 	|| op_type == OP_B_MATRIXMULTIPLY)
     {
@@ -738,33 +748,35 @@ void binary_op(const int op_type, ExpressionArray& dest, const SA1& src1, const 
     typedef typename SA1::Value SA1Value;
     typedef typename SA2::Value SA2Value;
 
-    switch(op_type) {
+    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
+
+    switch(op_type & OP_SIMPLE_MASK) {
 
     case OP_B_ADD:     
-	binary_op(dest, src1, src2, Op<OP_B_ADD, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_ADD, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     case OP_B_MULTIPLY:
 	if(src1.md().matrix_multiplication_applies(src2.md()))
-	    matrix_multiply(dest, src1, src2);
+	    matrix_multiply(dest, src1, src2, is_simple);
 	else
-	    binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>());
+	    binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     case OP_B_MATRIXMULTIPLY:
-	matrix_multiply(dest, src1, src2);
+	matrix_multiply(dest, src1, src2, is_simple);
 	return;
-
+	
     case OP_B_ARRAYMULTIPLY:
-	binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     case OP_B_SUBTRACT:     
-	binary_op(dest, src1, src2, Op<OP_B_SUBTRACT, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_SUBTRACT, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     case OP_B_DIVIDE:
-	binary_op(dest, src1, src2, Op<OP_B_DIVIDE, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_DIVIDE, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     default: 
@@ -780,30 +792,32 @@ void binary_op(const int op_type, ConstraintArray& dest, const SA1& src1, const 
     typedef typename SA1::Value SA1Value;
     typedef typename SA2::Value SA2Value;
 
-    switch(op_type) {
+    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
+
+    switch(op_type & OP_SIMPLE_MASK) {
 
     case OP_B_EQUAL:
-	binary_op(dest, src1, src2, Op<OP_B_EQUAL, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_EQUAL, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 		
     case OP_B_NOTEQ:
-	binary_op(dest, src1, src2, Op<OP_B_NOTEQ, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_NOTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 		
     case OP_B_LT:
-	binary_op(dest, src1, src2, Op<OP_B_LT, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_LT, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     case OP_B_LTEQ:
-	binary_op(dest, src1, src2, Op<OP_B_LTEQ, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_LTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     case OP_B_GT:
-	binary_op(dest, src1, src2, Op<OP_B_GT, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_GT, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     case OP_B_GTEQ:
-	binary_op(dest, src1, src2, Op<OP_B_GTEQ, DAValue, SA1Value, SA2Value>());
+	binary_op(dest, src1, src2, Op<OP_B_GTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
 	return;
 
     default: 

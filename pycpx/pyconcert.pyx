@@ -75,6 +75,8 @@ cdef extern from "cplex_interface.hpp":
     int OP_B_ADD, OP_B_MULTIPLY, OP_B_SUBTRACT, OP_B_DIVIDE
     int OP_B_MATRIXMULTIPLY, OP_B_ARRAYMULTIPLY
     int OP_B_EQUAL, OP_B_NOTEQ, OP_B_LT, OP_B_LTEQ, OP_B_GT, OP_B_GTEQ
+    int OP_SIMPLE_FLAG, OP_SIMPLE_MASK
+
     int OP_U_NO_TRANSLATE, OP_U_NEGATIVE, OP_U_ABS
     int OP_R_SUM, OP_R_MAX, OP_R_MIN
 
@@ -264,10 +266,11 @@ cdef extern from "py_new_wrapper.h":
 cdef inline CPlexExpression newCPEFromExisting(CPlexModel model, ExpressionArray* data):
     
     cdef CPlexExpression expr = createBlankCPlexExpression(CPlexExpression)
-    expr.model       = model
-    expr.data        = data
-    expr.original_size = None
-    expr.key         = None
+    expr.model              = model
+    expr.is_simple          = False
+    expr.data               = data
+    expr.original_size      = None
+    expr.key                = None
     expr.__array_priority__ = 20.1
     
     return expr
@@ -279,8 +282,15 @@ cdef inline CPlexExpression newCPEAsView(CPlexExpression cpx, MetaData md):
     return newCPEFromExisting(cpx.model, new ExpressionArray(cpx.data[0], cpx.data.md()))
 
 cdef inline CPlexExpression newCPEwithVariables(CPlexModel model, MetaData md, IloNumVarArray* v):
-    return newCPEFromExisting(model, new ExpressionArray(env, v, md))
-
+    cdef CPlexExpression expr = newCPEFromExisting(model, new ExpressionArray(env, v, md))
+    expr.is_simple  = True
+    return  expr
+    
+cdef inline CPlexExpression newCPEFromCPEWithSameProperties(CPlexExpression src, ExpressionArray* data):
+    cdef CPlexExpression expr = newCPEFromExisting(src.model, data)
+    expr.is_simple = src.is_simple
+    return expr
+    
 
 ################################################################################
 # For when we need a good numerical wrapper
@@ -352,7 +362,7 @@ cdef NumericalArrayWrapper newCoercedNumericalArray(Xo, MetaData md):
 ################################################################################
 # Operations
 
-cdef dict op_type_strings = {
+cdef dict _op_type_strings = {
     OP_B_ADD      : "+",
     OP_B_SUBTRACT : "-",
     OP_B_MULTIPLY : "*",
@@ -364,6 +374,9 @@ cdef dict op_type_strings = {
     OP_B_GT       : ">",
     OP_B_GTEQ     : ">=" }
 
+cdef str opTypeStrings(int op_code):
+    return _op_type_strings[op_code & OP_SIMPLE_MASK]
+
 cdef CPlexExpression newEmptyExpression(
     int op_type, CPlexModel model, MetaData md1, MetaData md2):
 
@@ -371,12 +384,14 @@ cdef CPlexExpression newEmptyExpression(
     cdef MetaData md_dest = newMetadata(op_type, md1, md2, &okay)
 
     if not okay:
-        if op_type == OP_B_MULTIPLY and md1.matrix_multiplication_applies(md2):
+        if ((op_type & OP_SIMPLE_MASK) == OP_B_MULTIPLY and md1.matrix_multiplication_applies(md2)
+            or (op_type & OP_SIMPLE_MASK) == OP_B_MATRIXMULTIPLY):
+            
             raise ValueError("Indexing error in dot product: Left shape = (%d, %d), right shape = (%d, %d)."
                              % (md1.shape(0), md1.shape(1), md2.shape(0), md2.shape(1)))
         else:
             raise ValueError("Indexing error in '%s': Left shape = (%d, %d), right shape = (%d, %d)."
-                             % (op_type_strings[op_type],
+                             % (opTypeStrings(op_type),
                                 md1.shape(0), md1.shape(1), md2.shape(0), md2.shape(1)))
 
     return newCPE(model, md_dest)
@@ -409,43 +424,58 @@ cdef inline CPlexExpression expression_op_array(
 
     # See if we need to do an upcast
     cdef MetaData Xmd = metadataFromNDArray(X, type(Xo) is matrix)
+    cdef MetaData Xmdt
     cdef NumericalArray *Xna = new NumericalArray(env, (<double*>(X.data)), Xmd)
 
     cdef CPlexExpression dest
+
+    # First see if we can make it a "simple" type
+    cdef bint matrix_multiplication = False
+    cdef bint is_simple 
 
     try:
         if reverse:
             try:
                 dest = newEmptyExpression(op_type, expr.model, Xmd, expr.data.md())
+                matrix_multiplication = Xmd.matrix_multiplication_applies(expr.data.md())
             except ValueError, ve:
                 if X.ndim == 1:
                     try:
-                        dest = newEmptyExpression(
-                            op_type, expr.model, Xmd.transposed(), expr.data.md())
+                        Xmdt = Xmd.transposed()
+                        dest = newEmptyExpression(op_type, expr.model, Xmdt, expr.data.md())
+                        matrix_multiplication = Xmdt.matrix_multiplication_applies(expr.data.md())
                     except ValueError:
                         raise ve
                 else:
                     raise
-
-            binary_op(op_type, dest.data[0], Xna[0], expr.data[0])
-
+                
+            is_simple = expr.is_simple or not matrix_multiplication
+            binary_op(op_type | (OP_SIMPLE_FLAG if is_simple else 0), dest.data[0], Xna[0], expr.data[0])
+                        
         else:
             try:
                 dest = newEmptyExpression(op_type, expr.model, expr.data.md(), Xmd)
+                matrix_multiplication = expr.data.md().matrix_multiplication_applies(Xmd)
             except ValueError, ve:
                 if X.ndim == 1:
                     try:
-                        dest = newEmptyExpression(op_type, expr.model, expr.data.md(), Xmd.transposed())
+                        Xmdt = Xmd.transposed()
+                        dest = newEmptyExpression(op_type, expr.model, expr.data.md(), Xmdt)
+                        matrix_multiplication = expr.data.md().matrix_multiplication_applies(Xmdt)
                     except ValueError:
                         raise ve
                 else:
                     raise
 
-            binary_op(op_type, dest.data[0], expr.data[0], Xna[0])
+            is_simple = expr.is_simple or not matrix_multiplication
+            binary_op(op_type | (OP_SIMPLE_FLAG if is_simple else 0), dest.data[0], expr.data[0], Xna[0])
             
     finally:
         del Xna
-        
+
+    # Need to determine when the simple flag can be propegated
+    dest.is_simple = (expr.is_simple and not matrix_multiplication)
+    
     return dest
 
 cdef inline CPlexExpression expression_op_scalar(
@@ -457,14 +487,16 @@ cdef inline CPlexExpression expression_op_scalar(
     try:
         if reverse:
             dest = newEmptyExpression(op_type, expr.model, sc.md(), expr.data.md())
-            binary_op(op_type, dest.data[0], sc[0], expr.data[0])
+            binary_op(op_type | OP_SIMPLE_FLAG, dest.data[0], sc[0], expr.data[0])
 
         else:
             dest = newEmptyExpression(op_type, expr.model, expr.data.md(), sc.md())
-            binary_op(op_type, dest.data[0], expr.data[0], sc[0])
+            binary_op(op_type | OP_SIMPLE_FLAG, dest.data[0], expr.data[0], sc[0])
         
     finally:
         del sc
+        
+    dest.is_simple = expr.is_simple
 
     return dest
 
@@ -548,6 +580,7 @@ cdef inline setSliceParts(Slice* s, t, long md_size):
 cdef class CPlexExpression(object):
 
     cdef CPlexModel model
+    cdef bint is_simple
     cdef ExpressionArray *data
     cdef object original_size
     cdef str key
@@ -637,7 +670,7 @@ cdef class CPlexExpression(object):
         Returns the transpose of the current expression matrix.
         """
         
-        return newCPEFromExisting(self.model, self.data.newTransposed())
+        return newCPEFromCPEWithSameProperties(self, self.data.newTransposed())
 
     @property
     def A(self):
@@ -655,7 +688,7 @@ cdef class CPlexExpression(object):
         scalars.
         """
         
-        return newCPEFromExisting(self.model, self.data.newAsArray())
+        return newCPEFromCPEWithSameProperties(self, self.data.newAsArray())
 
     @property
     def M(self):
@@ -672,10 +705,10 @@ cdef class CPlexExpression(object):
         numpy, with the exception that 1x1 blocks are treated as
         scalars.
         """
-        return newCPEFromExisting(self.model, self.data.newAsMatrix())
+        return newCPEFromCPEWithSameProperties(self, self.data.newAsMatrix())
 
     def __neg__(self):
-        return newCPEFromExisting(self.model, self.data.newFromUnaryOp(OP_U_NEGATIVE))
+        return newCPEFromCPEWithSameProperties(self, self.data.newFromUnaryOp(OP_U_NEGATIVE))
 
     @property
     def shape(self):
@@ -799,7 +832,8 @@ cdef class CPlexExpression(object):
 
         """
         return newCPEFromExisting(self.model, self.data.newFromReduction(
-            OP_R_SUM, -1 if axis is None else axis))
+            OP_R_SUM | (OP_SIMPLE_FLAG if self.is_simple else 0),
+            -1 if axis is None else axis))
 
     def mean(self, axis = None):
         """
@@ -849,7 +883,8 @@ cdef class CPlexExpression(object):
 
         """
         return newCPEFromExisting(self.model, self.data.newFromReduction(
-            OP_R_MAX, -1 if axis is None else axis))
+            OP_R_MAX | (OP_SIMPLE_FLAG if self.is_simple else 0),
+            -1 if axis is None else axis))
 
     def min(self, axis = None):
         """
@@ -871,10 +906,11 @@ cdef class CPlexExpression(object):
 
         """
         return newCPEFromExisting(self.model, self.data.newFromReduction(
-            OP_R_MIN, -1 if axis is None else axis))
+            OP_R_MIN | (OP_SIMPLE_FLAG if self.is_simple else 0),
+            -1 if axis is None else axis))
 
     def __abs__(self):
-        return newCPEFromExisting(self.model, self.data.newFromUnaryOp(OP_U_ABS))
+        return newCPEFromCPEWithSameProperties(self, self.data.newFromUnaryOp(OP_U_ABS))
 
     def abs(self):
         """
@@ -892,7 +928,7 @@ cdef class CPlexExpression(object):
         Returns a copy of the current expression.
         """
         
-        return newCPEFromExisting(self.model, self.data.newFromUnaryOp(OP_U_NO_TRANSLATE))
+        return newCPEFromCPEWithSameProperties(self, self.data.newFromUnaryOp(OP_U_NO_TRANSLATE))
 
     def __len__(self):
         return self.data.md().size()
@@ -1190,8 +1226,8 @@ cdef CPlexConstraint newEmptyConstraint(
 
     if not okay:
         raise ValueError("Indexing error for '%s' constraint: Left shape = (%d, %d), right shape = (%d, %d)."
-                             % (op_type_strings[op_type],
-                                md1.shape(0), md1.shape(1), md2.shape(0), md2.shape(1)))
+                         % (opTypeStrings(op_type),
+                            md1.shape(0), md1.shape(1), md2.shape(0), md2.shape(1)))
 
     return newCPC(model, md_dest, left, right)
 
@@ -1250,7 +1286,7 @@ cdef CPlexConstraint cstr_expression_op_array(
                 else:
                     raise
 
-            binary_op(op_type, dest.data[0], Xna[0], expr.data[0])
+            binary_op(op_type | OP_SIMPLE_FLAG, dest.data[0], Xna[0], expr.data[0])
 
         else:
             try:
@@ -1268,7 +1304,7 @@ cdef CPlexConstraint cstr_expression_op_array(
                 else:
                     raise
 
-            binary_op(op_type, dest.data[0], expr.data[0], Xna[0])
+            binary_op(op_type | OP_SIMPLE_FLAG, dest.data[0], expr.data[0], Xna[0])
     finally:
         del Xna
         
@@ -1283,11 +1319,11 @@ cdef CPlexConstraint cstr_expression_op_scalar(
     try:
         if reverse:
             dest = newEmptyConstraint(op_type, expr.model, v, sc.md(), expr, expr.data.md())
-            binary_op(op_type, dest.data[0], sc[0], expr.data[0])
+            binary_op(op_type | OP_SIMPLE_FLAG, dest.data[0], sc[0], expr.data[0])
 
         else:
             dest = newEmptyConstraint(op_type, expr.model, expr, expr.data.md(), v, sc.md())
-            binary_op(op_type, dest.data[0], expr.data[0], sc[0])
+            binary_op(op_type | OP_SIMPLE_FLAG, dest.data[0], expr.data[0], sc[0])
     finally:
         del sc
 

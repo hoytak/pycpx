@@ -39,6 +39,10 @@ using namespace std;
 #define OP_R_MAX		3
 #define OP_R_MIN		4
 
+
+#define OP_SIMPLE_FLAG        64
+#define OP_SIMPLE_MASK        (OP_SIMPLE_FLAG - 1)
+
 ////////////////////////////////////////////////////////////////////////////////
 // Unary operators
 
@@ -124,9 +128,12 @@ template <> struct ROp<OP_R_MIN, IloNumExpr> {
 };
 
 template <typename D, typename SA, typename Slice0, typename Slice1, typename ReductionOp>
-void reduction_op(D& dest, const SA& src, const Slice0& src_sl0, const Slice1& src_sl1, const ReductionOp& op)
+void reduction_op(D& dest, const SA& src, const Slice0& src_sl0, const Slice1& src_sl1, 
+		  const ReductionOp& op, bool is_simple)
 {
     dest = src(src_sl0.start(), src_sl1.start());
+
+    dest.getEnv().setNormalizer(is_simple ? IloFalse : IloTrue);
 
     if(unlikely(src.preferReversedTraverse()))
     {
@@ -146,6 +153,8 @@ void reduction_op(D& dest, const SA& src, const Slice0& src_sl0, const Slice1& s
 	    for(long j = src_sl1.start(); j != src_sl1.stop(); j += src_sl1.step())
 		op(dest, src(i,j));
     }
+
+    dest.getEnv().setNormalizer(IloTrue);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -194,8 +203,11 @@ template <typename D, typename S1, typename S2> struct Op<OP_B_GT, D, S1, S2>  {
 };
 
 template <typename DA, typename SA1, typename SA2, typename BinaryFunction>
-void binary_op(DA& dest, const SA1& src1, const SA2& src2, const BinaryFunction& op)
+void binary_op(DA& dest, const SA1& src1, const SA2& src2, const BinaryFunction& op, bool is_simple)
 {
+    // this is what it means to be simple
+    dest.getEnv().setNormalizer(is_simple ? IloFalse : IloTrue);
+
     if(unlikely(dest.preferReversedTraverse()))
     {
 	for(long j = 0; j < dest.shape(1); ++j)
@@ -208,10 +220,12 @@ void binary_op(DA& dest, const SA1& src1, const SA2& src2, const BinaryFunction&
 	    for(long j = 0; j < dest.shape(1); ++j)
 		dest(i,j) = op(src1(i,j), src2(i,j));
     }
+
+    dest.getEnv().setNormalizer(IloTrue);
 }
 
 template <typename DA, typename SA1, typename SA2>
-void matrix_multiply(DA& dest, const SA1& src1, const SA2& src2)
+void matrix_multiply(DA& dest, const SA1& src1, const SA2& src2, bool is_simple)
 {
     const long n_left = dest.shape(0);
     const long n_inner = src1.shape(1);
@@ -220,6 +234,8 @@ void matrix_multiply(DA& dest, const SA1& src1, const SA2& src2)
     assert_equal(dest.shape(0), src1.shape(0));
     assert_equal(dest.shape(1), src2.shape(1));
 	    
+    dest.getEnv().setNormalizer(is_simple ? IloFalse : IloTrue);
+
     for(long left = 0; left < n_left; ++left)
     {
 	for(long right = 0; right < n_right; ++right)
@@ -230,6 +246,8 @@ void matrix_multiply(DA& dest, const SA1& src1, const SA2& src2)
 		dest(left, right) += src1(left, inner) * src2(inner, right);
 	}
     }
+
+    dest.getEnv().setNormalizer(IloTrue);
 }
 
 #endif
