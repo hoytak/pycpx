@@ -11,37 +11,10 @@
 
 #include "debug.h"
 #include "optimizations.h"
+#include "containers.hpp"
+#include "constants.h"
 
 using namespace std;
-
-//////////////////////////////////////////////////
-// Define the basic operations
-
-#define OP_B_ADD	        1
-#define OP_B_MULTIPLY	        2
-#define OP_B_MATRIXMULTIPLY	3
-#define OP_B_ARRAYMULTIPLY	4
-#define OP_B_SUBTRACT		5
-#define OP_B_DIVIDE		6
-#define OP_B_EQUAL		7
-#define OP_B_NOTEQ		8
-#define OP_B_LT			9
-#define OP_B_LTEQ		10 
-#define OP_B_GT			11
-#define OP_B_GTEQ		12
-
-#define OP_U_NO_TRANSLATE	1
-#define OP_U_ABS		2
-#define OP_U_NEGATIVE		3
-
-#define OP_R_SUM		1
-#define OP_R_PROD		2
-#define OP_R_MAX		3
-#define OP_R_MIN		4
-
-
-#define OP_SIMPLE_FLAG        64
-#define OP_SIMPLE_MASK        (OP_SIMPLE_FLAG - 1)
 
 ////////////////////////////////////////////////////////////////////////////////
 // Unary operators
@@ -100,7 +73,28 @@ void unary_op(DA& dest, const SA& src, const Slice0& src_sl0, const Slice1& src_
     }
 }
 
+ExpressionArray* newFromUnaryOp(const ExpressionArray& src, int op_type) 
+{
+    typedef ExpressionArray::Value Value;
 
+    ExpressionArray *dest = new ExpressionArray(src.getEnv(), src.md());
+
+    switch(op_type) {
+
+    case OP_U_NO_TRANSLATE:
+	unary_op(*dest, src, UOp<OP_U_NO_TRANSLATE, Value, Value>());
+	return dest;
+    case OP_U_ABS:
+	unary_op(*dest, src, UOp<OP_U_ABS, Value, Value>());
+	return dest;
+    case OP_U_NEGATIVE:
+	unary_op(*dest, src, UOp<OP_U_NEGATIVE, Value, Value>());
+	return dest;
+    default:
+	assert(false);
+	return dest;
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Reduction operators
@@ -155,6 +149,51 @@ void reduction_op(D& dest, const SA& src, const Slice0& src_sl0, const Slice1& s
     }
 
     dest.getEnv().setNormalizer(IloTrue);
+}
+
+template <typename ReductionOp>
+ExpressionArray* newFromReduction(const ExpressionArray& src, 
+				  int axis, const ReductionOp& op, bool is_simple)
+{
+    ExpressionArray* dest_ptr;
+
+    dest_ptr = new ExpressionArray(src.getEnv(), MetaData(
+	        src.md().mode(), (axis == 1) ? src.shape(0) : 1, (axis == 0) ? src.shape(1) : 1));
+
+    ExpressionArray& dest = *dest_ptr;
+
+    switch(axis){
+    case 0:
+	for(long i = 0; i < src.shape(1); ++i)
+	    reduction_op(dest(0,i), src, SliceFull(src.shape(0)), SliceSingle(i), op, is_simple);
+	break;
+    case 1:
+	for(long i = 0; i < src.shape(0); ++i)
+	    reduction_op(dest(i,0), src, SliceSingle(i), SliceFull(src.shape(1)), op, is_simple);
+	break;
+    default:
+	reduction_op(dest(0,0), src, SliceFull(src.shape(0)), SliceFull(src.shape(1)), op, is_simple);
+	break;
+    }
+    
+    return dest_ptr;
+}
+
+
+ExpressionArray* newFromReduction(const ExpressionArray& src, int op_type, int axis)
+{
+    typedef ExpressionArray::Value Value;
+
+    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
+    
+    switch(op_type & OP_SIMPLE_MASK){
+    case OP_R_SUM: return newFromReduction(src, axis, ROp<OP_R_SUM, Value>(), is_simple);
+    case OP_R_MAX: return newFromReduction(src, axis, ROp<OP_R_MAX, Value>(), is_simple);
+    case OP_R_MIN: return newFromReduction(src, axis, ROp<OP_R_MIN, Value>(), is_simple);
+    default: 
+	assert(false);
+	return NULL;
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -232,16 +271,19 @@ void matrix_multiply(DA& dest, const SA1& src1, const SA2& src2, bool is_simple)
     const long n_right = dest.shape(1);
 
     assert_equal(dest.shape(0), src1.shape(0));
+    assert_equal(src1.shape(1), src2.shape(0));
     assert_equal(dest.shape(1), src2.shape(1));
+
+    IloEnv env = dest.getEnv();
 	    
-    dest.getEnv().setNormalizer(is_simple ? IloFalse : IloTrue);
+    env.setNormalizer(is_simple ? IloFalse : IloTrue);
 
     for(long left = 0; left < n_left; ++left)
     {
 	for(long right = 0; right < n_right; ++right)
 	{
 	    dest(left, right) = src1(left, 0) * src2(0, right);
-	    
+
 	    for(long inner = 1; inner < n_inner; ++inner)
 		dest(left, right) += src1(left, inner) * src2(inner, right);
 	}
@@ -249,5 +291,96 @@ void matrix_multiply(DA& dest, const SA1& src1, const SA2& src2, bool is_simple)
 
     dest.getEnv().setNormalizer(IloTrue);
 }
+
+
+////////////////////////////////////////////////////////////////////////////////
+// A generic operator interface
+
+// This function allows for easy wrapping with the cython functions 
+template <typename SA1, typename SA2>
+void binary_op(const int op_type, ExpressionArray& dest, const SA1& src1, const SA2& src2)
+{
+    typedef ExpressionArray::Value  DAValue;
+    typedef typename SA1::Value SA1Value;
+    typedef typename SA2::Value SA2Value;
+
+    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
+
+    switch(op_type & OP_SIMPLE_MASK) {
+
+    case OP_B_ADD:     
+	binary_op(dest, src1, src2, Op<OP_B_ADD, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    case OP_B_MULTIPLY:
+	if(src1.md().matrix_multiplication_applies(src2.md()))
+	    matrix_multiply(dest, src1, src2, is_simple);
+	else
+	    binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    case OP_B_MATRIXMULTIPLY:
+	matrix_multiply(dest, src1, src2, is_simple);
+	return;
+	
+    case OP_B_ARRAYMULTIPLY:
+	binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    case OP_B_SUBTRACT:     
+	binary_op(dest, src1, src2, Op<OP_B_SUBTRACT, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    case OP_B_DIVIDE:
+	binary_op(dest, src1, src2, Op<OP_B_DIVIDE, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    default: 
+	assert(false);
+    }
+}
+
+// This function allows for easy wrapping with the cython functions 
+template <typename SA1, typename SA2>
+void binary_op(const int op_type, ConstraintArray& dest, const SA1& src1, const SA2& src2)
+{
+    typedef ConstraintArray::Value  DAValue;
+    typedef typename SA1::Value SA1Value;
+    typedef typename SA2::Value SA2Value;
+
+    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
+
+    switch(op_type & OP_SIMPLE_MASK) {
+
+    case OP_B_EQUAL:
+	binary_op(dest, src1, src2, Op<OP_B_EQUAL, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+		
+    case OP_B_NOTEQ:
+	binary_op(dest, src1, src2, Op<OP_B_NOTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+		
+    case OP_B_LT:
+	binary_op(dest, src1, src2, Op<OP_B_LT, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    case OP_B_LTEQ:
+	binary_op(dest, src1, src2, Op<OP_B_LTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    case OP_B_GT:
+	binary_op(dest, src1, src2, Op<OP_B_GT, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    case OP_B_GTEQ:
+	binary_op(dest, src1, src2, Op<OP_B_GTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
+	return;
+
+    default: 
+	assert(false);
+    }
+}
+
+
 
 #endif

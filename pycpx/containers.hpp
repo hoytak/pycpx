@@ -11,9 +11,10 @@
 #include "debug.h"
 #include "optimizations.h"
 #include "simple_shared_ptr.h"
-#include "operators.hpp"
+#include "constants.h"
 
 using namespace std;
+
 
 #define MATRIX_MODE     0
 #define ARRAY_MODE      1
@@ -222,16 +223,16 @@ public:
 	: _index(index) 
 	{}
 
-    inline long size() const { return 1; }
-    inline long step() const { return 1; }
-    inline long start() const {return _index;}
-    inline long stop() const {return _index+1;}
+    inline long size() const  { return 1; }
+    inline long step() const  { return 1; }
+    inline long start() const { return _index;}
+    inline long stop() const  { return _index+1;}
 
 private:
     long _index;
 };
 
-template<typename ParentType, typename T> class ComponentBase {
+template<typename ParentType, typename T, int scalar_type> class ComponentBase {
 public:
     typedef T Value;
 
@@ -245,25 +246,27 @@ public:
 	    return env;
 	}
 
-    virtual inline bool preferReversedTraverse() const 
+    inline bool preferReversedTraverse() const 
 	{
-	    return _md.stride(0) < _md.stride(1);
+	    return scalar_type ? false : _md.stride(0) < _md.stride(1);
 	}
 
-    inline void setMode(int _mode) { _md.setMode(_mode); }
-    inline const MetaData& md() const             { return _md; }
-    virtual long offset() const                   { return _md.offset(); }
-    virtual const pair<long, long>& shape() const  { return _md.shape(); }
-    virtual long shape(int i) const		  { return _md.shape(i); }
-    virtual const pair<long, long>& stride() const { return _md.stride(); }
-    virtual long stride(int i) const		  { return _md.stride(i); }
-    virtual long size() const { return shape(0) * shape(1); }
+    inline void setMode(int _mode)		{ _md.setMode(_mode); }
 
-    virtual Value& operator()(long i, long j) = 0;
-    virtual const Value& operator()(long i, long j) const = 0;
-    
-    inline void set(long i, long j, Value v) { (*this)(i,j) = v; }
-    inline Value get(long i, long j)	       { return (*this)(i,j); }
+    inline const MetaData& md() const		{ return _md; }
+
+    long offset() const				{ return scalar_type ? 0 : _md.offset(); }
+
+    const pair<long, long>& shape() const	{ return _md.shape(); }
+
+    long shape(int dim) const		  
+	{ return scalar_type ? ((dim == 1 || dim == 0) ? 1 : 0) : _md.shape(dim); }
+
+    const pair<long, long>& stride() const	{ return _md.stride(); }
+
+    long stride(int i) const			{ return scalar_type ? 0 : _md.stride(i); }
+
+    long size() const				{ return scalar_type ? 1 : shape(0) * shape(1); }
 
     inline ParentType* newFromGeneralSlice(const Slice& s0, const Slice& s1) const
 	{
@@ -327,25 +330,6 @@ public:
 	    return dest;
 	}
 
-    inline ParentType* newFromUnaryOp(int op_type)
-	{
-	    ParentType *dest = new ParentType(env, _md);
-
-	    switch(op_type) {
-	    case OP_U_NO_TRANSLATE:
-		unary_op(*dest, parent(), UOp<OP_U_NO_TRANSLATE, Value,Value>());
-		return dest;
-	    case OP_U_ABS:
-		unary_op(*dest, parent(), UOp<OP_U_ABS, Value,Value>());
-		return dest;
-	    case OP_U_NEGATIVE:
-		unary_op(*dest, parent(), UOp<OP_U_NEGATIVE, Value,Value>());
-	    default:
-		assert(false);
-		return dest;
-	    }
-	}
-    
     inline ParentType* newTransposed() const
 	{
 	    return new ParentType(parent(), _md.transposed());
@@ -370,33 +354,6 @@ public:
 	    new_md.setMode(MATRIX_MODE);
 	    
 	    return new ParentType(parent(), new_md);
-	}
-
-    template <typename ReductionOp>
-    ParentType* newFromReduction(int axis, const ReductionOp& op, bool is_simple) const
-	{
-	    ParentType* dest_ptr;
-
-	    dest_ptr = new ParentType(env, MetaData(
-	        md().mode(), (axis == 1) ? shape(0) : 1, (axis == 0) ? shape(1) : 1));
-
-	    ParentType& dest = *dest_ptr;
-
-	    switch(axis){
-	    case 0:
-		for(long i = 0; i < shape(1); ++i)
-		    reduction_op(dest(0,i), parent(), SliceFull(shape(0)), SliceSingle(i), op, is_simple);
-		break;
-	    case 1:
-		for(long i = 0; i < shape(0); ++i)
-		    reduction_op(dest(i,0), parent(), SliceSingle(i), SliceFull(shape(1)), op, is_simple);
-		break;
-	    default:
-		reduction_op(dest(0,0), parent(), SliceFull(shape(0)), SliceFull(shape(1)), op, is_simple);
-		break;
-	    }
-
-	    return dest_ptr;
 	}
 
 
@@ -447,9 +404,9 @@ protected:
     IloEnv env;
 };
 
-class ExpressionArray : public ComponentBase<ExpressionArray, IloNumExpr> {
+class ExpressionArray : public ComponentBase<ExpressionArray, IloNumExpr, 0> {
 public:  
-    typedef ComponentBase<ExpressionArray, IloNumExpr> Base;
+    typedef ComponentBase<ExpressionArray, IloNumExpr, 0> Base;
   
     ExpressionArray(IloEnv env, const MetaData& md)
 	: Base(env, md), data_ptr(new IloExprArray(env, shape(0) * shape(1))),
@@ -501,19 +458,9 @@ public:
 	    return (*data_ptr)[idx];
 	}
 
-    ExpressionArray* newFromReduction(int op_type, int axis) const
+    inline void set(long i, long j, const Value& v) 
 	{
-
-	    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
-
-	    switch(op_type & OP_SIMPLE_MASK){
-	    case OP_R_SUM: return Base::newFromReduction(axis, ROp<OP_R_SUM, Value>(), is_simple);
-	    case OP_R_MAX: return Base::newFromReduction(axis, ROp<OP_R_MAX, Value>(), is_simple);
-	    case OP_R_MIN: return Base::newFromReduction(axis, ROp<OP_R_MIN, Value>(), is_simple);
-	    default: 
-		assert(false);
-		return NULL;
-	    }
+	    (*this)(i,j) = v;
 	}
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -536,10 +483,10 @@ public:
 	}
 };
 
-class ConstraintArray : public ComponentBase<ConstraintArray, IloConstraint> {
+class ConstraintArray : public ComponentBase<ConstraintArray, IloConstraint, 0> {
 public:
     typedef IloConstraint Value;
-    typedef ComponentBase<ConstraintArray, IloConstraint> Base;
+    typedef ComponentBase<ConstraintArray, IloConstraint, 0> Base;
 
     ConstraintArray(IloEnv env, const MetaData& _md)
 	: Base(env, _md), data_ptr(new IloConstraintArray(env, shape(0)*shape(1)) )
@@ -561,17 +508,21 @@ public:
 	    return (*data_ptr)[getIndex(i,j)];
 	}
 
+    inline void set(long i, long j, const Value& v) 
+	{
+	    (*this)(i,j) = v;
+	}
+
     inline const IloConstraintArray& constraint() const { return *data_ptr; }
 
 };
 
 // These come from other operations
 
-class NumericalArray 
-    : public ComponentBase<NumericalArray, double> {
+class NumericalArray : public ComponentBase<NumericalArray, double, 0> {
 
 public:
-    typedef ComponentBase<NumericalArray, double> Base;
+    typedef ComponentBase<NumericalArray, double, 0> Base;
     typedef Base::Value Value;
 
     NumericalArray(IloEnv env, double* _data, const MetaData& _md)
@@ -592,11 +543,16 @@ public:
 	{
 	    return *(data + getIndex(i,j));
 	}
+
+    inline void set(long i, long j, const Value& v) 
+	{
+	    (*this)(i,j) = v;
+	}
 };
 
-struct Scalar : public ComponentBase<Scalar, double> {
+struct Scalar : public ComponentBase<Scalar, double, 1> {
 public:
-    typedef ComponentBase<Scalar, double> Base;
+    typedef ComponentBase<Scalar, double, 1> Base;
     typedef double Value;
 
     Scalar(IloEnv env, const double& _value)
@@ -613,10 +569,6 @@ private:
     double value;
 
 public:
-    inline bool preferReversedTraverse() const 
-	{
-	    return false;
-	}
 
     inline long offset() const
 	{
@@ -630,27 +582,10 @@ public:
 
     inline long shape(int dim) const
 	{
-	    switch(dim){
-	    case 0:
-	    case 1:
-		return 1;
-	    default:
-		return 0;
-	    }
+	    return (dim == 1 || dim == 0) ? 1 : 0;
 	}
 
     inline const double& operator()(long, long) const
-	{
-	    assert_equal(shape(0), 1);
-	    assert_equal(shape(1), 1);
-	    assert_equal(stride(0), 0);
-	    assert_equal(stride(1), 0);
-	    assert_equal(offset(), 0);
-
-	    return value;
-	}
-
-    inline double& operator()(long, long) 
 	{
 	    assert_equal(shape(0), 1);
 	    assert_equal(shape(1), 1);
@@ -734,94 +669,6 @@ MetaData newMetadata(int op_type, const MetaData& md1, const MetaData& md2, int*
     {
 	*okay = false;
 	return MetaData();
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// A generic operator interface
-
-// This function allows for easy wrapping with the cython functions 
-template <typename SA1, typename SA2>
-void binary_op(const int op_type, ExpressionArray& dest, const SA1& src1, const SA2& src2)
-{
-    typedef ExpressionArray::Value  DAValue;
-    typedef typename SA1::Value SA1Value;
-    typedef typename SA2::Value SA2Value;
-
-    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
-
-    switch(op_type & OP_SIMPLE_MASK) {
-
-    case OP_B_ADD:     
-	binary_op(dest, src1, src2, Op<OP_B_ADD, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    case OP_B_MULTIPLY:
-	if(src1.md().matrix_multiplication_applies(src2.md()))
-	    matrix_multiply(dest, src1, src2, is_simple);
-	else
-	    binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    case OP_B_MATRIXMULTIPLY:
-	matrix_multiply(dest, src1, src2, is_simple);
-	return;
-	
-    case OP_B_ARRAYMULTIPLY:
-	binary_op(dest, src1, src2, Op<OP_B_MULTIPLY, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    case OP_B_SUBTRACT:     
-	binary_op(dest, src1, src2, Op<OP_B_SUBTRACT, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    case OP_B_DIVIDE:
-	binary_op(dest, src1, src2, Op<OP_B_DIVIDE, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    default: 
-	assert(false);
-    }
-}
-
-// This function allows for easy wrapping with the cython functions 
-template <typename SA1, typename SA2>
-void binary_op(const int op_type, ConstraintArray& dest, const SA1& src1, const SA2& src2)
-{
-    typedef ConstraintArray::Value  DAValue;
-    typedef typename SA1::Value SA1Value;
-    typedef typename SA2::Value SA2Value;
-
-    bool is_simple = !!(op_type & OP_SIMPLE_FLAG);
-
-    switch(op_type & OP_SIMPLE_MASK) {
-
-    case OP_B_EQUAL:
-	binary_op(dest, src1, src2, Op<OP_B_EQUAL, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-		
-    case OP_B_NOTEQ:
-	binary_op(dest, src1, src2, Op<OP_B_NOTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-		
-    case OP_B_LT:
-	binary_op(dest, src1, src2, Op<OP_B_LT, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    case OP_B_LTEQ:
-	binary_op(dest, src1, src2, Op<OP_B_LTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    case OP_B_GT:
-	binary_op(dest, src1, src2, Op<OP_B_GT, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    case OP_B_GTEQ:
-	binary_op(dest, src1, src2, Op<OP_B_GTEQ, DAValue, SA1Value, SA2Value>(), is_simple);
-	return;
-
-    default: 
-	assert(false);
     }
 }
 

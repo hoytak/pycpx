@@ -124,12 +124,10 @@ cdef extern from "cplex_interface.hpp":
         ExpressionArray* newFromSlice(SliceSingle, SliceSingle)
         ExpressionArray* newFromSlice(SliceFull, SliceSingle)
         ExpressionArray* newFromSlice(SliceSingle, SliceFull)
-        ExpressionArray* newFromUnaryOp(int)
         ExpressionArray* newTransposed()
         ExpressionArray* newCopy()
         ExpressionArray* newAsArray()
         ExpressionArray* newAsMatrix()
-        ExpressionArray* newFromReduction(int op_type, int axis)
 
         void setVariables(IloNumVarArray*)
         
@@ -147,6 +145,9 @@ cdef extern from "cplex_interface.hpp":
         Scalar(IloEnv, double, MetaData)
         Scalar(IloEnv, double)
         MetaData md()
+
+    ExpressionArray* newFromUnaryOp(ExpressionArray, int)
+    ExpressionArray* newFromReduction(ExpressionArray, int op_type, int axis)
 
     void binary_op(int op, ConstraintArray&, NumericalArray, ExpressionArray)
     void binary_op(int op, ConstraintArray&, ExpressionArray, NumericalArray)
@@ -708,7 +709,7 @@ cdef class CPlexExpression(object):
         return newCPEFromCPEWithSameProperties(self, self.data.newAsMatrix())
 
     def __neg__(self):
-        return newCPEFromCPEWithSameProperties(self, self.data.newFromUnaryOp(OP_U_NEGATIVE))
+        return newCPEFromCPEWithSameProperties(self, newFromUnaryOp(self.data[0], OP_U_NEGATIVE))
 
     @property
     def shape(self):
@@ -831,7 +832,8 @@ cdef class CPlexExpression(object):
           print m[X.sum(axis = 0)]
 
         """
-        return newCPEFromExisting(self.model, self.data.newFromReduction(
+        return newCPEFromExisting(self.model, newFromReduction(
+            self.data[0],
             OP_R_SUM | (OP_SIMPLE_FLAG if self.is_simple else 0),
             -1 if axis is None else axis))
 
@@ -882,7 +884,8 @@ cdef class CPlexExpression(object):
           print m[X.max(axis = 0)]
 
         """
-        return newCPEFromExisting(self.model, self.data.newFromReduction(
+        return newCPEFromExisting(self.model, newFromReduction(
+            self.data[0],
             OP_R_MAX | (OP_SIMPLE_FLAG if self.is_simple else 0),
             -1 if axis is None else axis))
 
@@ -905,12 +908,13 @@ cdef class CPlexExpression(object):
           print m[X.min(axis = 0)]
 
         """
-        return newCPEFromExisting(self.model, self.data.newFromReduction(
+        return newCPEFromExisting(self.model, newFromReduction(
+            self.data[0],
             OP_R_MIN | (OP_SIMPLE_FLAG if self.is_simple else 0),
             -1 if axis is None else axis))
 
     def __abs__(self):
-        return newCPEFromCPEWithSameProperties(self, self.data.newFromUnaryOp(OP_U_ABS))
+        return newCPEFromCPEWithSameProperties(self, newFromUnaryOp(self.data[0], OP_U_ABS))
 
     def abs(self):
         """
@@ -928,7 +932,7 @@ cdef class CPlexExpression(object):
         Returns a copy of the current expression.
         """
         
-        return newCPEFromCPEWithSameProperties(self, self.data.newFromUnaryOp(OP_U_NO_TRANSLATE))
+        return newCPEFromCPEWithSameProperties(self, newFromUnaryOp(self.data[0], OP_U_NO_TRANSLATE))
 
     def __len__(self):
         return self.data.md().size()
