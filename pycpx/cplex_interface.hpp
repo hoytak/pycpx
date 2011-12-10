@@ -123,10 +123,7 @@ public:
   {
     try {
       if(!model_extracted)
-	{
-	  solver.extract(model);
-	  model_extracted = true;
-	}
+	extractModel();
 
       if(!expr.hasVar())
 	return Status("Only variables may be set, not expressions.");
@@ -181,11 +178,8 @@ public:
 
     try{
       if(!model_extracted)
-	{
-	  solver.extract(model);
-	  model_extracted = true;
-	}
-
+	extractModel();
+    
       if(elapsed_time != NULL)
 	*elapsed_time = -solver.getImpl()->getCplexTime();
 
@@ -302,6 +296,15 @@ public:
   }
 
 private:
+
+  void extractModel() 
+  {
+    env.setNormalizer(IloFalse);
+    solver.extract(model);
+    model_extracted = true;
+    env.setNormalizer(IloTrue);
+  }
+
   IloEnv env;
   IloModel model;
   IloCplex solver;
