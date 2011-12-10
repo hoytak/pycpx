@@ -7,14 +7,14 @@
 source_directory_list = ['pycpx']
 compiler_args = []
 link_args = []
-version = "0.01"
+version = "0.02"
 description="A fast and flexible numpy-based wrapper for CPLex's Optimization Suite."
 author = "Hoyt Koepke"
 author_email="hoytak@gmail.com"
 name = 'pycpx'
 scripts = []
 url = "http://www.stat.washington.edu/~hoytak/code/pycpx/"
-download_url = "http://pypi.python.org/packages/source/p/pycpx/pycpx-0.01.tar.gz"
+download_url = "http://pypi.python.org/packages/source/p/pycpx/pycpx-0.02.tar.gz"
 
 long_description = \
 """
@@ -27,6 +27,9 @@ express such programs using numpy and natural python constructs.
 PyCPX requires IBM's ILog Concert Technology Suite, which is available
 for free under IBM's Academic Initiative program or as part of the
 CPlex Optimization Suite.
+
+Version 0.02 fixes several small bugs and gives vast speed
+improvements for model creation in many models.
 """
 
 classifiers = [
