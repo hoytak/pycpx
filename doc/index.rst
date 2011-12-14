@@ -5,11 +5,15 @@ PyCPX Introduction
 PyCPX is a python wrapper for the CPlex optimization suite that
 focuses on ease of use and seamless integration with numpy_.  It
 allows one to naturally specify linear and quadratic problems over
-real, boolean, and integer variables.
+real, boolean, and integer variables.  PyCPX allows one to naturally
+express such programs using numpy and natural python constructs.
 
 It requires IBM's `ILog Concert Technology`_ Suite, part of the CPlex
-Optimization Suite, which is available for free to eligible academics
-under IBM's Academic Initiative program.
+Optimization Suite, which is available for free to eligible academic
+researchers under IBM's Academic Initiative program.
+
+Version 0.02 fixes several small bugs and gives vast speed
+improvements for model creation in many models. 
 
 PyCPX Distinctives
 ==================
