@@ -1,9 +1,10 @@
+==================
 License
-=======
+==================
 
-PyCPX is licensed under the terms of the GNU Lesser General Public
-License::`
+PyCPX is Licensed under the LGPL open source license.
 
+::
 
 		     GNU LESSER GENERAL PUBLIC LICENSE
 			 Version 3, 29 June 2007
