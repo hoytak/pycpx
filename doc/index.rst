@@ -15,6 +15,9 @@ researchers under IBM's Academic Initiative program.
 Version 0.02 fixes several small bugs and gives vast speed
 improvements for model creation in many models. 
 
+Version 0.02 brings several bugfixes and substantial performance
+improvements during model construction.
+
 PyCPX Distinctives
 ==================
 
