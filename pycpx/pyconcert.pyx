@@ -1046,6 +1046,9 @@ cdef CPlexExpression newVariableBlock(CPlexModel model, size, var_type, lower_bo
         n = d_0 * d_1
         var_mode = "matrix"
 
+    else:
+        raise ValueError("Size '%s' not understood." % str(size))
+
     cdef int var_type_n
     cdef long i
     cdef double d
