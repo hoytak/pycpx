@@ -175,6 +175,7 @@ cdef extern from "cplex_interface.hpp":
         pass
 
     cdef IntParam RootAlg "IloCplex::RootAlg"
+    cdef IntParam Threads "IloCplex::Threads"
 
     cdef int CPX_ALG_NONE, CPX_ALG_AUTOMATIC, CPX_ALG_PRIMAL, CPX_ALG_DUAL, CPX_ALG_BARRIER,
     cdef int CPX_ALG_SIFTING, CPX_ALG_CONCURRENT, CPX_ALG_NET
@@ -1833,7 +1834,7 @@ cdef class CPlexModel(object):
     cpdef solve(self, objective, maximize = None, minimize = None,
               bint recycle_variables = False, bint recycle_basis = True,
               dict starting_dict = {}, str basis_file = None,
-              algorithm = "auto"):
+              algorithm = "auto", max_threads = None):
         """
         Solves the current model trying to maximize (default) or
         minimize `objective` subject to the constraints given by
@@ -1895,6 +1896,11 @@ cdef class CPlexModel(object):
           Specify which algorithm to use.  Available options are auto
           (default), primal, dual, barrier, sifting, concurrent, or
           netflow.  See CPlex doumentation for the specifics..
+
+        max_threads:
+
+          Specify the maximum number of threads for the solver to use.
+
 
         Example 1::
 
@@ -2028,6 +2034,9 @@ cdef class CPlexModel(object):
                 self.model.setParameter(RootAlg, model_lookup[algorithm.lower()])
             except KeyError:
                 raise ValueError("Algorithm '%s' not recognized, can be auto, primal, dual, barrier, sifting, concurrent, or netflow.")
+
+            if max_threads:
+                self.model.setParameter(Threads, int(max_threads))
 
             if tmp_basis_file_name is not None:
                 b = bytes(tmp_basis_file_name)
