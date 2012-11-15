@@ -77,7 +77,8 @@ search_required_include_files = [
     "ilconcert/iloexpression.h",
     "ilconcert/iloalg.h",
     "ilconcert/iloenv.h",
-    "ilconcert/ilosolution.h"]
+    "ilconcert/ilosolution.h",
+    "ilcplex/ilocplexi.h"]
 
 search_required_concert_lib_files = ["libconcert.a", "libconcert.so", "libconcert.dll"]
 search_required_cplex_lib_files = ["libcplex.a", "libcplex.so", "libcplex.dll"]
