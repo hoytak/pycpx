@@ -114,6 +114,7 @@ cdef extern from "cplex_interface.hpp":
         ExpressionArray(IloEnv, IloNumVarArray*, MetaData)
         ExpressionArray(ExpressionArray, MetaData)
         void set(long, long, IloNumVar)
+        IloNumVar get(long, long)
 
         ExpressionArray* newFromGeneralSlice(Slice, Slice)
         ExpressionArray* newFromSlice(Slice, SliceFull)
@@ -1172,7 +1173,70 @@ cdef CPlexExpression newVariableBlock(CPlexModel model, size, var_type, lower_bo
 
     return cpx
 
+def concatenate(list expression_list, int axis = 0):
+    """
+    Concatenates arrays along a particular axis.
+    """
+
+    cdef CPlexExpression cpe
+
+    if len(expression_list) == 0:
+        raise ValueError("List of expressions is empty!")
+
+    if not (axis == 0 or axis == 1):
+        raise ValueError("Axis must be 0 or 1.")
+
+    cdef int same_axis = 1 - axis
+    cdef CPlexExpression cpe_0 = (<CPlexExpression?>(expression_list[0]))
+    cdef long same_axis_size = cpe_0.data.md().shape(same_axis)
+    cdef CPlexModel model = cpe_0.model
+    cdef int mode = ARRAY_MODE
+
+    cdef list breaks = [None]*(len(expression_list) + 1)
     
+    cdef size_t i, pos, pos_start = 0, pos_end = 0
+
+    for i, cpe in enumerate(expression_list):
+        
+        if cpe.data.md().shape(same_axis) != same_axis_size:
+            raise ValueError("All dimensions must be same, except along concatenation axis.")
+
+        if cpe.model is not model:
+            raise ValueError("Cannot combine variables from two different models.")
+
+        if cpe.data.md().mode() == MATRIX_MODE:
+            mode = MATRIX_MODE
+
+        pos_start = pos_end
+        pos_end += cpe.data.md().shape(axis)
+
+        breaks[i] = (pos_start, pos_end)
+
+    cdef size_t cat_axis_size = pos_end
+
+    cdef MetaData md = MetaData(mode,
+                                cat_axis_size if axis == 0 else same_axis_size,
+                                same_axis_size if axis == 0 else cat_axis_size)
+
+    cdef CPlexExpression dest = newCPE(model, md)
+
+    cdef long j, k
+    
+    for i, cpe in enumerate(expression_list):
+        pos_start, pos_end = breaks[i]
+
+        if axis == 0:
+            for j in range(0, pos_end - pos_start):
+                for k in range(0, same_axis_size):
+                    dest.data.set(pos_start + j, k, cpe.data.get(j,k))
+        else:
+            for j in range(0, same_axis_size):
+                for k in range(0, pos_end - pos_start):
+                    dest.data.set(j, pos_start + k, cpe.data.get(j,k))
+
+    return dest
+
+
 ################################################################################
 # Constraint creation functions
 

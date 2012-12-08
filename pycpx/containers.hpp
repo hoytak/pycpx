@@ -477,6 +477,16 @@ public:
 	    (*this)(i,j) = v;
 	}
 
+    inline Value& get(long i, long j)
+	{
+	  return (*this)(i,j);
+	}
+
+    inline const Value& get(long i, long j) const
+	{
+	  return (*this)(i,j);
+	}
+
     ////////////////////////////////////////////////////////////////////////////////
     // Methods specific to this case
 
