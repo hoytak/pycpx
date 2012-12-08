@@ -83,8 +83,13 @@ public:
 	{
 	}
 
-    MetaData(const MetaData& md)
-	: _mode(md._mode), _offset(md._offset), _shape(md._shape), _stride(md._stride)
+    MetaData(const MetaData& md, bool preserve_striding = true)
+	: _mode(md._mode)
+	, _offset(preserve_striding ? md._offset : 0)
+	, _shape(md._shape)
+	, _stride(preserve_striding ? md._stride : 
+		  (make_pair<long, long>(md._shape.first == 1 ? 0 : md._shape.second,
+					 md._shape.second == 1 ? 0 : 1)))
 	{
 	}
 
@@ -236,11 +241,11 @@ template<typename ParentType, typename T, int scalar_type> class ComponentBase {
 public:
     typedef T Value;
 
-    ComponentBase(IloEnv _env, const MetaData& md)
-	: _md(md), env(_env)
-	{
-	}
-    
+  ComponentBase(IloEnv _env, const MetaData& md, bool preserve_striding)
+    : _md(md, preserve_striding), env(_env)
+  {
+  }
+
     inline IloEnv getEnv() const 
 	{
 	    return env;
@@ -391,6 +396,15 @@ public:
 		assert_equal(stride(1), 0);
 	    }
 
+	    // cerr << "offset = " << offset()
+	    // 	 << "stride(0) = " << stride(0)
+	    // 	 << "stride(1) = " << stride(1) 
+	    // 	 << "shape(0) = " << shape(0)
+	    // 	 << "shape(1) = " << shape(1)
+	    // 	 << "i = " << i
+	    // 	 << "j = " << j
+	    // 	 << endl;
+
 	    return offset() + stride(0)*i  + stride(1)*j;
 	}
 
@@ -409,13 +423,13 @@ public:
     typedef ComponentBase<ExpressionArray, IloNumExpr, 0> Base;
   
     ExpressionArray(IloEnv env, const MetaData& md)
-	: Base(env, md), data_ptr(new IloExprArray(env, shape(0) * shape(1))),
+      : Base(env, md, false), data_ptr(new IloExprArray(env, shape(0) * shape(1))),
 	  aux_var_ptr(NULL)
 	{
 	}
 
     ExpressionArray(IloEnv env, IloNumVarArray * v, const MetaData& md)
-	: Base(env, md), data_ptr(new IloExprArray(env, shape(0) * shape(1))),
+      : Base(env, md, false), data_ptr(new IloExprArray(env, shape(0) * shape(1))),
 	  aux_var_ptr(v)
 	{
 	    assert_equal(v->getSize(), shape(0)*shape(1));
@@ -425,13 +439,13 @@ public:
 	}
     
     ExpressionArray(const ExpressionArray& ea, const MetaData& md)
-	: Base(ea.env, md), data_ptr(ea.data_ptr), aux_var_ptr(NULL)
+      : Base(ea.env, md, true), data_ptr(ea.data_ptr), aux_var_ptr(NULL)
 	{
 	}
 
     template<typename Slice0, typename Slice1>
     ExpressionArray(const ExpressionArray& ea, const Slice0& s0, const Slice1& s1)
-	: Base(ea.env, MetaData(ea.md(), s0, s1)), data_ptr(ea.data_ptr),
+      : Base(ea.env, MetaData(ea.md(), s0, s1), true), data_ptr(ea.data_ptr),
 	  aux_var_ptr(NULL)
 	{
 	}
@@ -489,7 +503,7 @@ public:
     typedef ComponentBase<ConstraintArray, IloConstraint, 0> Base;
 
     ConstraintArray(IloEnv env, const MetaData& _md)
-	: Base(env, _md), data_ptr(new IloConstraintArray(env, shape(0)*shape(1)) )
+      : Base(env, _md, false), data_ptr(new IloConstraintArray(env, shape(0)*shape(1)) )
 	{
 	}
     
@@ -526,7 +540,7 @@ public:
     typedef Base::Value Value;
 
     NumericalArray(IloEnv env, double* _data, const MetaData& _md)
-	: Base(env, _md), data(_data)
+      : Base(env, _md, true), data(_data)
 	{
 	}
 
@@ -556,12 +570,12 @@ public:
     typedef double Value;
 
     Scalar(IloEnv env, const double& _value)
-	: Base(env, MetaData(ARRAY_MODE, 1, 1, 0, 0)), value(_value)
+      : Base(env, MetaData(ARRAY_MODE, 1, 1, 0, 0), true), value(_value)
 	{
 	}
 
     Scalar(IloEnv env, const double& _value, const MetaData&)
-	: Base(env, MetaData(ARRAY_MODE, 1, 1, 0, 0)), value(_value)
+      : Base(env, MetaData(ARRAY_MODE, 1, 1, 0, 0), true), value(_value)
 	{
 	}
 
