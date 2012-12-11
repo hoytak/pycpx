@@ -176,6 +176,7 @@ cdef extern from "cplex_interface.hpp":
 
     cdef IntParam RootAlg "IloCplex::RootAlg"
     cdef IntParam Threads "IloCplex::Threads"
+    cdef IntParam RelativeMIPGapTolerance "IloCplex::EpGap"
 
     cdef int CPX_ALG_NONE, CPX_ALG_AUTOMATIC, CPX_ALG_PRIMAL, CPX_ALG_DUAL, CPX_ALG_BARRIER,
     cdef int CPX_ALG_SIFTING, CPX_ALG_CONCURRENT, CPX_ALG_NET
@@ -189,6 +190,7 @@ cdef extern from "cplex_interface.hpp":
         Status solve()
         Status solve(double*)
         Status setParameter(IntParam, int value)
+        Status setParameter(IntParam, double value)
         Status getValues(NumericalArray&, ExpressionArray)
         Status setStartingValues(ExpressionArray&, NumericalArray&)
         Status readBasis(char *filename)
@@ -1834,7 +1836,7 @@ cdef class CPlexModel(object):
     cpdef solve(self, objective, maximize = None, minimize = None,
               bint recycle_variables = False, bint recycle_basis = True,
               dict starting_dict = {}, str basis_file = None,
-              algorithm = "auto", max_threads = None):
+              algorithm = "auto", max_threads = None, relative_gap = None):
         """
         Solves the current model trying to maximize (default) or
         minimize `objective` subject to the constraints given by
@@ -1901,6 +1903,9 @@ cdef class CPlexModel(object):
 
           Specify the maximum number of threads for the solver to use.
 
+        relative_gap:
+
+          Specify the relative gap for the relaxed vs. integer solution.
 
         Example 1::
 
@@ -2031,12 +2036,15 @@ cdef class CPlexModel(object):
             # the objective is set, so these things stay put
 
             try:
-                self.model.setParameter(RootAlg, model_lookup[algorithm.lower()])
+                self.model.setParameter(RootAlg, <int> model_lookup[algorithm.lower()])
             except KeyError:
                 raise ValueError("Algorithm '%s' not recognized, can be auto, primal, dual, barrier, sifting, concurrent, or netflow.")
 
             if max_threads:
-                self.model.setParameter(Threads, int(max_threads))
+                self.model.setParameter(Threads, <int> int(max_threads))
+
+            if relative_gap is not None:
+                self.model.setParameter(RelativeMIPGapTolerance, float(relative_gap))
 
             if tmp_basis_file_name is not None:
                 b = bytes(tmp_basis_file_name)
