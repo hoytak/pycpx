@@ -12,12 +12,6 @@ It requires IBM's `ILog Concert Technology`_ Suite, part of the CPlex
 Optimization Suite, which is available for free to eligible academic
 researchers under IBM's Academic Initiative program.
 
-Version 0.02 fixes several small bugs and gives vast speed
-improvements for model creation in many models. 
-
-Version 0.02 brings several bugfixes and substantial performance
-improvements during model construction.
-
 PyCPX Distinctives
 ==================
 
@@ -80,6 +74,7 @@ A more detailed example::
   2.0
   >>> m[X[0,0]]
   -2.0
+
 
 .. toctree::
     :maxdepth: 2

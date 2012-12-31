@@ -7,7 +7,7 @@
 source_directory_list = ['pycpx']
 compiler_args = []
 link_args = []
-version = "0.02"
+version = "0.03"
 description="A fast and flexible numpy-based wrapper for CPLex's Optimization Suite."
 author = "Hoyt Koepke"
 author_email="hoytak@gmail.com"
@@ -27,6 +27,8 @@ express such programs using numpy and natural python constructs.
 PyCPX requires IBM's ILog Concert Technology Suite, which is available
 for free under IBM's Academic Initiative program or as part of the
 CPlex Optimization Suite.
+
+Version 0.03 fixes an error in array slicing.
 
 Version 0.02 fixes several small bugs and gives vast speed
 improvements for model creation in many models.

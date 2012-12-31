@@ -27,6 +27,15 @@ submitted at http://github.com/hoytak/pycpx/issues.  Feature additions
 and further development are also quite welcome!  Please email me at
 hoytak@gmail.com if you have any questions.
 
+Changelog
+---------
+
+Version 0.03 fixes a critical bug in array slicing.
+
+Version 0.02 fixes several small bugs and gives vast speed
+improvements for model creation in many models. 
+
+
 .. _ILog Concert Technology: http://www-01.ibm.com/software/integration/optimization/cplex-optimizer/interfaces/#concert_technology
 .. _github: http://github.com/
 .. _git: http://git-scm.com/
